@@ -43,8 +43,8 @@
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
-#define TRANSFER_ROM_TO_RAM
-//#define TRANSFER_RAM_TO_RAM
+//#define TRANSFER_ROM_TO_RAM
+#define TRANSFER_RAM_TO_RAM
 
 #define EXAMPLE_DMA DMA0
 #define EXAMPLE_DMAMUX DMAMUX0
