@@ -5,7 +5,7 @@
  * Generated linker script file for MK64FN1M0xxx12
  * Created from linkscript.ldt by FMCreateLinkLibraries
  * Using Freemarker v2.3.23
- * MCUXpresso IDE v10.1.1 [Build 606] [2018-01-02] on 2018/04/15 15:01:56
+ * MCUXpresso IDE v10.1.1 [Build 606] [2018-01-02] on 2018/04/19 21:41:22
  */
 
 INCLUDE "frdmk64f_driver_examples_edma_edma_memory_to_memory_Debug_library.ld"
@@ -63,9 +63,18 @@ SECTIONS
     .text : ALIGN(4)
     {
         *(.text*)
-        *(.rodata .rodata.* .constdata .constdata.*)
+        *( .rodata.* .constdata .constdata.*)
         . = ALIGN(4);
     } > PROGRAM_FLASH
+
+    .text2 0x4500 : ALIGN(0x20)
+    {
+        . = ALIGN(0x20);
+        */randomData.o (.rodata)
+       *(.rodata)
+        
+    } > PROGRAM_FLASH
+
     /*
      * for exception handling/unwind - some Newlib functions (in common
      * with C++ and STDC++) use this. 

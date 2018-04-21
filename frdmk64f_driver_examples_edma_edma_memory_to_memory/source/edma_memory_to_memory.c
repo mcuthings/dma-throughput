@@ -43,6 +43,9 @@
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
+#define TRANSFER_ROM_TO_RAM
+//#define TRANSFER_RAM_TO_RAM
+
 #define EXAMPLE_DMA DMA0
 #define EXAMPLE_DMAMUX DMAMUX0
 #define DMA_CH0 0
@@ -50,11 +53,12 @@
 #define DMA_CH2 2
 #define DMA_CH3 3
 #define TRANSFER_MODE 
-
-
 #define BUFF_LENGTH 8192UL
+
+/* Systick Counter */
 #define GET_TICKS() (0xFFFFFF - SysTick->VAL)
 #define STOP_COUNTING() (SysTick->CTRL &= (~SysTick_CTRL_ENABLE_Msk))
+
 
 /*******************************************************************************
  * Prototypes
@@ -74,7 +78,16 @@ edma_transfer_config_t transferConfig;
 edma_config_t userConfig;
 uint32_t dma_start,dma_end;
 __attribute__ ((section (".data.$SRAM_LOWER") )) volatile bool g_Transfer_Done = false;
-extern __attribute__ ((aligned(4))) char _binary_randomData_bin_start[];
+extern char _binary_randomData_bin_start[]; //Source addr in case of ROM-to-RAM transfer 
+uint32_t transferByte; 
+
+#if defined TRANSFER_RAM_TO_RAM
+__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(32))) uint8_t srcAddr[BUFF_LENGTH]={0}; //source table array for RAM-to-RAM
+#else defined TRANSFER_ROM_TO_RAM
+void* srcAddr; //Source addr for DMA
+#endif
+__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(32))) uint8_t destAddr[BUFF_LENGTH] = {0};
+
 
 /*DMA Throughput counter*/
 volatile uint32_t cnt;
@@ -93,6 +106,7 @@ void EDMA_Callback(edma_handle_t *handle, void *param, bool transferDone, uint32
 {
     
     dma_end = GET_TICKS();
+    STOP_COUNTING();
     
     if (transferDone)
     {
@@ -105,10 +119,14 @@ void SysTick_Handler(void){
 	SysIsrcount++;
 }
 
-//AT_NONCACHEABLE_SECTION_INIT(__attribute__ ((aligned(32))) uint32_t srcAddr[BUFF_LENGTH]);
-//AT_NONCACHEABLE_SECTION_INIT(uint32_t destAddr[BUFF_LENGTH]) = {0};
-__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(4))) uint8_t srcAddr[BUFF_LENGTH]={0};
-__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(4))) uint8_t destAddr[BUFF_LENGTH] = {0};
+__attribute__ ((long_call, section (".ramfunc.$SRAM_LOWER") )) void dma_polling(void) 
+{
+    /* Wait for EDMA transfer finish */
+    while (g_Transfer_Done != true)
+    {
+    }
+}
+
 
 /*!
  * @brief Main function
@@ -125,10 +143,18 @@ int main(void)
     /* Print source buffer */
     PRINTF("EDMA memory to memory transfer example begin.\r\n\r\n");
 
+    /* For RAM-to-RAM transfer test
+     * Prepare source data */
+#if defined TRANSFER_RAM_TO_RAM
     for (uint32_t i = 0; i < BUFF_LENGTH; i++)
     {
         srcAddr[i] = i;
     }
+#else defined TRANSFER_ROM_TO_RAM
+    srcAddr = _binary_randomData_bin_start;
+#endif 
+
+
     /* Configure DMAMUX */
     DMAMUX_Init(EXAMPLE_DMAMUX);
 #if defined(FSL_FEATURE_DMAMUX_HAS_A_ON) && FSL_FEATURE_DMAMUX_HAS_A_ON
@@ -163,39 +189,29 @@ int main(void)
     g_EDMA_Handle[2] = &g_EDMA_Handle_ch2;
     g_EDMA_Handle[3] = &g_EDMA_Handle_ch3;
 
+    
+
     for (uint8_t i=0; i<4;i++){ //loop while ch0 - ch3
         EDMA_SetCallback(g_EDMA_Handle[i], EDMA_Callback, NULL);
         switch (i){
             case 0:
-                /*EDMA_PrepareTransfer(&transferConfig, srcAddr, (uint32_t)1, destAddr, (uint32_t)1,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);
-                */EDMA_PrepareTransfer(&transferConfig, _binary_randomData_bin_start, (uint32_t)1, destAddr, (uint32_t)32,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);
-                
+                transferByte = (uint32_t) 1; //1Byte transfer
                 break;
             case 1:
-                /*EDMA_PrepareTransfer(&transferConfig, srcAddr, (uint32_t)4, destAddr, (uint32_t)4,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);
-                */EDMA_PrepareTransfer(&transferConfig, _binary_randomData_bin_start, (uint32_t)4, destAddr, (uint32_t)32,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);
-                
+                transferByte = (uint32_t) 4; //4Byte transfer
                 break;
             case 2:
-                /*EDMA_PrepareTransfer(&transferConfig, srcAddr, (uint32_t)16, destAddr, (uint32_t)16,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);
-                */EDMA_PrepareTransfer(&transferConfig, _binary_randomData_bin_start, (uint32_t)16, destAddr, (uint32_t)32,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);
-                
+                transferByte = (uint32_t) 16; //16Byte transfer 
                 break;
             case 3:
-                /*EDMA_PrepareTransfer(&transferConfig, srcAddr, (uint32_t)32, destAddr, (uint32_t)32,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);*/
-                EDMA_PrepareTransfer(&transferConfig, _binary_randomData_bin_start, (uint32_t)32, destAddr, (uint32_t)32,
-                             (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH), (uint32_t)(sizeof(srcAddr[0])*BUFF_LENGTH*512), kEDMA_MemoryToMemory);
+                transferByte = (uint32_t) 32; //32Byte transfer
                 break;
             default:
                 break;
         }
+        EDMA_PrepareTransfer(&transferConfig, srcAddr, transferByte, destAddr, transferByte,
+                             (uint32_t)(BUFF_LENGTH), (uint32_t)(BUFF_LENGTH*512), kEDMA_MemoryToMemory);
+                
         EDMA_SubmitTransfer(g_EDMA_Handle[i], &transferConfig);
         EDMA_SetModulo(EXAMPLE_DMA, g_EDMA_Handle[i]->channel, kEDMA_Modulo8Kbytes, kEDMA_Modulo8Kbytes);
 
@@ -212,38 +228,20 @@ int main(void)
         SysIsrcount = 0;
         EDMA_StartTransfer(g_EDMA_Handle[i]);
         
-        /* Wait for EDMA transfer finish */
-        while (g_Transfer_Done != true)
-        {
-        }
+        dma_polling(); //Polling the DMA transfer complete status
         
         cnt = dma_end - dma_start;
         cnt += (SysIsrcount*0xFFFFFF);
         coreClock = CLOCK_GetCoreSysClkFreq();
         scalingFactor = (double)cnt/coreClock;
-        result=(sizeof(srcAddr[0])*BUFF_LENGTH*512/scalingFactor)/(1024*1024);//Unit is [MB/Sec]
+        result=(BUFF_LENGTH*512/scalingFactor)/(1024*1024);//Unit is [MB/Sec]
         
         /* Print out result */
-        switch (i){
-            case 0:
-                PRINTF("DMA throughput (1Byte transfer) is %d MB/Sec\r\n",result);
-                break;
-            case 1:
-                PRINTF("DMA throughput (4Byte transfer) is %d MB/Sec\r\n",result);
-                break;
-            case 2:
-                PRINTF("DMA throughput (16Byte trasfer) is %d MB/Sec\r\n",result);
-                break;
-            case 3:
-                PRINTF("DMA throughput (32Byte trasfer) is %d MB/Sec\r\n",result);
-                break;
-        } 
+        PRINTF("DMA throughput (%dByte transfer) is %d MB/Sec\r\n",transferByte ,result);          
 
     }
     
     PRINTF("\r\n\r\nEDMA memory to memory transfer example finish.\r\n\r\n");
-    
-    STOP_COUNTING();
     
     while (1)
     {
