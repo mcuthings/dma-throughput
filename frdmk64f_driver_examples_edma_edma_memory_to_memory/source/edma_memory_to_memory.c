@@ -64,6 +64,7 @@
  * Prototypes
  ******************************************************************************/
 void SysTick_Handler(void);
+void dmaTransfer(void* srcAddr, void* destAddr);
 /*******************************************************************************
  * Variables
  ******************************************************************************/
@@ -74,28 +75,19 @@ edma_handle_t g_EDMA_Handle_ch1; //for the test of 4byte(32bits) transfer
 edma_handle_t g_EDMA_Handle_ch2; //for the test of 16byte transfer
 edma_handle_t g_EDMA_Handle_ch3; //for the test of 32byte transfer
 
-edma_transfer_config_t transferConfig;
-edma_config_t userConfig;
-uint32_t dma_start,dma_end;
-__attribute__ ((section (".data.$SRAM_LOWER") )) volatile bool g_Transfer_Done = false;
+static edma_transfer_config_t transferConfig;
+static edma_config_t userConfig;
+static uint32_t dma_start,dma_end;
+static void* srcAddr; //Source addr for DMA
 extern char _binary_randomData_bin_start[]; //Source addr in case of ROM-to-RAM transfer 
-uint32_t transferByte; 
+static uint32_t SysIsrcount=0;
 
-#if defined TRANSFER_RAM_TO_RAM
-__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(32))) uint8_t srcAddr[BUFF_LENGTH]={0}; //source table array for RAM-to-RAM
-#else defined TRANSFER_ROM_TO_RAM
-void* srcAddr; //Source addr for DMA
-#endif
-__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(32))) uint8_t destAddr[BUFF_LENGTH] = {0};
+__attribute__ ((section (".data.$SRAM_LOWER") )) volatile bool g_Transfer_Done = false;
+__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(32))) uint8_t srcRAM[BUFF_LENGTH]={0}; //source table array for RAM-to-RAM
+__attribute__ ((section(".data.SRAM_UPPER"))) __attribute__ ((aligned(32))) uint8_t destRAM[BUFF_LENGTH] = {0};
 
 
-/*DMA Throughput counter*/
-volatile uint32_t cnt;
-volatile uint32_t ret;
-double coreClock;
-double scalingFactor;
-uint32_t result;
-uint32_t SysIsrcount=0;
+
 
 /*******************************************************************************
  * Code
@@ -116,7 +108,7 @@ void EDMA_Callback(edma_handle_t *handle, void *param, bool transferDone, uint32
 
 void SysTick_Handler(void){
 
-	SysIsrcount++;
+    SysIsrcount++;
 }
 
 __attribute__ ((long_call, section (".ramfunc.$SRAM_LOWER") )) void dma_polling(void) 
@@ -134,8 +126,8 @@ __attribute__ ((long_call, section (".ramfunc.$SRAM_LOWER") )) void dma_polling(
 int main(void)
 {
     uint32_t i = 0;
-    
-    
+    uint32_t srcRamTemp[BUFF_LENGTH];
+
     BOARD_InitPins();
     BOARD_BootClockRUN();
     BOARD_InitDebugConsole();
@@ -145,15 +137,10 @@ int main(void)
 
     /* For RAM-to-RAM transfer test
      * Prepare source data */
-#if defined TRANSFER_RAM_TO_RAM
     for (uint32_t i = 0; i < BUFF_LENGTH; i++)
     {
-        srcAddr[i] = i;
+        srcRAM[i] = i%256; //mod(256) to store a byte
     }
-#else defined TRANSFER_ROM_TO_RAM
-    srcAddr = _binary_randomData_bin_start;
-#endif 
-
 
     /* Configure DMAMUX */
     DMAMUX_Init(EXAMPLE_DMAMUX);
@@ -189,7 +176,28 @@ int main(void)
     g_EDMA_Handle[2] = &g_EDMA_Handle_ch2;
     g_EDMA_Handle[3] = &g_EDMA_Handle_ch3;
 
-    
+    /* DMA Transfer throughput test */    
+    PRINTF("\r\nDMA Transfer from RAM to RAM\r\n");
+    dmaTransfer(srcRAM, destRAM);
+
+    PRINTF("\r\nDMA Transfer from ROM to RAM\r\n");
+    dmaTransfer(_binary_randomData_bin_start, destRAM);
+
+    PRINTF("\r\n\r\nEDMA memory to memory transfer example finish.\r\n\r\n");
+
+    while (1)
+    {
+    }
+}
+
+void dmaTransfer(void* srcAddr, void* destAddr){
+    /* DMA Throughput counter */
+    uint32_t transferByte; 
+    volatile uint32_t cnt;
+    volatile uint32_t ret;
+    double coreClock;
+    double scalingFactor;
+    uint32_t result;
 
     for (uint8_t i=0; i<4;i++){ //loop while ch0 - ch3
         EDMA_SetCallback(g_EDMA_Handle[i], EDMA_Callback, NULL);
@@ -237,13 +245,8 @@ int main(void)
         result=(BUFF_LENGTH*512/scalingFactor)/(1024*1024);//Unit is [MB/Sec]
         
         /* Print out result */
-        PRINTF("DMA throughput (%dByte transfer) is %d MB/Sec\r\n",transferByte ,result);          
+        PRINTF("DMA throughput (Transfer size %dByte) is %d MB/Sec\r\n",transferByte ,result);          
 
     }
     
-    PRINTF("\r\n\r\nEDMA memory to memory transfer example finish.\r\n\r\n");
-    
-    while (1)
-    {
-    }
 }
